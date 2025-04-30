@@ -1,9 +1,8 @@
-import os
 import subprocess
 import threading
 import gradio as gr
 
-# Track installation status
+# Track whether dependencies are installed
 installed = False
 
 def install_dependencies():
@@ -22,13 +21,12 @@ def generate_video(image_input):
     from diffusers import StableVideoDiffusionPipeline
     from diffusers.utils import load_image, export_to_video
 
-    # Load image from URL or uploaded file
+    # Load image from URL or upload
     if isinstance(image_input, str):
         image = load_image(image_input)
     else:
         image = load_image(image_input.name)
 
-    # Load the model
     pipe = StableVideoDiffusionPipeline.from_pretrained(
         "stabilityai/stable-video-diffusion-img2vid-xt",
         torch_dtype=torch.float16,
@@ -36,15 +34,14 @@ def generate_video(image_input):
     )
     pipe.enable_model_cpu_offload()
 
-    # Generate frames
     generator = torch.manual_seed(42)
     frames = pipe(image, decode_chunk_size=8, generator=generator).frames[0]
 
-    # Export to video
-    output_path = "generated.mp4"
-    export_to_video(frames, output_path, fps=7)
-    return output_path
+    video_path = "generated.mp4"
+    export_to_video(frames, video_path, fps=7)
+    return video_path
 
+# Gradio UI
 with gr.Blocks() as demo:
     status = gr.Markdown("")
     install_btn = gr.Button("Install & Setup")
@@ -60,17 +57,16 @@ with gr.Blocks() as demo:
         outputs=[status, install_btn, start_btn]
     )
 
-    def select_image(image_url_val, image_file_val):
+    def handle_input(image_url_val, image_file_val):
         return image_url_val if image_url_val else image_file_val
 
     start_btn.click(
-        select_image,
+        fn=handle_input,
         inputs=[image_url, image_upload],
-        outputs=generate_video,
-        preprocess=False
+        outputs=gr.State()
     ).then(
         fn=generate_video,
-        inputs=[gr.State(lambda: image_url.value if image_url.value else image_upload)],
+        inputs=[gr.State()],
         outputs=output_video
     )
 
