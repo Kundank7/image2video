@@ -3,7 +3,7 @@ import subprocess
 import threading
 import gradio as gr
 
-# Flag to indicate if dependencies are installed
+# Track installation status
 installed = False
 
 def install_dependencies():
@@ -17,18 +17,18 @@ def run_installation():
     thread.start()
     return "Installing dependencies... Please wait.", gr.update(visible=False), gr.update(visible=True)
 
-def generate_video(image_url_or_file):
+def generate_video(image_input):
     import torch
     from diffusers import StableVideoDiffusionPipeline
     from diffusers.utils import load_image, export_to_video
 
-    # Load image from upload or URL
-    if isinstance(image_url_or_file, str):
-        image = load_image(image_url_or_file)
+    # Load image from URL or uploaded file
+    if isinstance(image_input, str):
+        image = load_image(image_input)
     else:
-        image = load_image(image_url_or_file.name)
+        image = load_image(image_input.name)
 
-    # Load model
+    # Load the model
     pipe = StableVideoDiffusionPipeline.from_pretrained(
         "stabilityai/stable-video-diffusion-img2vid-xt",
         torch_dtype=torch.float16,
@@ -36,34 +36,43 @@ def generate_video(image_url_or_file):
     )
     pipe.enable_model_cpu_offload()
 
-    # Generate video
+    # Generate frames
     generator = torch.manual_seed(42)
     frames = pipe(image, decode_chunk_size=8, generator=generator).frames[0]
 
-    video_path = "generated.mp4"
-    export_to_video(frames, video_path, fps=7)
-    return video_path
+    # Export to video
+    output_path = "generated.mp4"
+    export_to_video(frames, output_path, fps=7)
+    return output_path
 
 with gr.Blocks() as demo:
-    install_btn = gr.Button("Install & Start Setup")
     status = gr.Markdown("")
-    start_btn = gr.Button("Start", visible=False)
-    
-    with gr.Row():
-        image_input = gr.Textbox(label="Paste Image URL (or upload below)")
-        image_upload = gr.File(label="Or Upload Image")
+    install_btn = gr.Button("Install & Setup")
+    start_btn = gr.Button("Start Generation", visible=False)
+
+    image_url = gr.Textbox(label="Paste Image URL (or leave blank to upload)")
+    image_upload = gr.File(label="Or Upload Image")
 
     output_video = gr.Video(label="Generated Video")
 
-    install_btn.click(run_installation, outputs=[status, install_btn, start_btn])
-    
-    def get_image(image_url, image_file):
-        return image_url if image_url else image_file
+    install_btn.click(
+        run_installation,
+        outputs=[status, install_btn, start_btn]
+    )
 
-    start_btn.click(fn=get_image, inputs=[image_input, image_upload], outputs=None).then(
+    def select_image(image_url_val, image_file_val):
+        return image_url_val if image_url_val else image_file_val
+
+    start_btn.click(
+        select_image,
+        inputs=[image_url, image_upload],
+        outputs=generate_video,
+        preprocess=False
+    ).then(
         fn=generate_video,
-        inputs=[gr.State(lambda: image_input.value if image_input.value else image_upload.value)],
+        inputs=[gr.State(lambda: image_url.value if image_url.value else image_upload)],
         outputs=output_video
     )
 
-demo.launch()
+if __name__ == "__main__":
+    demo.launch(server_name="0.0.0.0", server_port=8080)
